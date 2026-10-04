@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 
-from model_provider import ProviderConfig
+from model_provider import ProviderConfig, normalize_provider
 
 
 @dataclass
 class LabConfig:
-    """Student TODO: define the shared configuration for the lab.
+    """Shared configuration for the lab.
 
     Hints:
     - Keep paths for the repo root, dataset directory, and state directory.
@@ -26,7 +27,7 @@ class LabConfig:
 
 
 def load_config(base_dir: Path | None = None) -> LabConfig:
-    """Student TODO: load environment variables and return a LabConfig.
+    """Load environment variables and return a complete ``LabConfig``.
 
     Pseudocode:
     1. Resolve the repo root or default to the current file parent.
@@ -36,17 +37,72 @@ def load_config(base_dir: Path | None = None) -> LabConfig:
     """
 
     root = (base_dir or Path(__file__).resolve().parent.parent).resolve()
+    try:
+        from dotenv import load_dotenv
 
-    # TODO: read env vars for one of the supported providers.
-    # Example knobs:
-    # - LLM_PROVIDER / LLM_MODEL
-    # - OPENAI_API_KEY
-    # - GEMINI_API_KEY
-    # - ANTHROPIC_API_KEY
-    # - OLLAMA_BASE_URL
-    # - OPENROUTER_API_KEY
-    # - CUSTOM_BASE_URL / CUSTOM_API_KEY
-    # TODO: create `root / "state"`.
-    # TODO: choose sensible defaults for compact memory.
+        load_dotenv(root / ".env")
+    except ImportError:
+        pass
 
-    raise NotImplementedError("Students should implement load_config().")
+    data_dir = root / "data"
+    state_dir = root / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+
+    model = _provider_config("LLM", default_provider="openai", default_model="gpt-4o-mini")
+    judge_model = _provider_config(
+        "JUDGE",
+        default_provider=model.provider,
+        default_model=model.model_name,
+    )
+    return LabConfig(
+        base_dir=root,
+        data_dir=data_dir,
+        state_dir=state_dir,
+        compact_threshold_tokens=_env_positive_int("COMPACT_THRESHOLD_TOKENS", 1_200),
+        compact_keep_messages=_env_positive_int("COMPACT_KEEP_MESSAGES", 6),
+        model=model,
+        judge_model=judge_model,
+    )
+
+
+def _env_positive_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer, got {raw!r}.") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be greater than zero.")
+    return value
+
+
+def _provider_config(prefix: str, default_provider: str, default_model: str) -> ProviderConfig:
+    provider = normalize_provider(os.getenv(f"{prefix}_PROVIDER", default_provider))
+    model_name = os.getenv(f"{prefix}_MODEL", default_model)
+    try:
+        temperature = float(os.getenv(f"{prefix}_TEMPERATURE", "0"))
+    except ValueError as exc:
+        raise ValueError(f"{prefix}_TEMPERATURE must be a number.") from exc
+
+    provider_prefix = {
+        "openai": "OPENAI",
+        "custom": "CUSTOM",
+        "gemini": "GEMINI",
+        "anthropic": "ANTHROPIC",
+        "ollama": "OLLAMA",
+        "openrouter": "OPENROUTER",
+    }[provider]
+    api_key = os.getenv(f"{prefix}_API_KEY") or os.getenv(f"{provider_prefix}_API_KEY")
+    base_url = os.getenv(f"{prefix}_BASE_URL") or os.getenv(f"{provider_prefix}_BASE_URL")
+    if provider == "ollama" and not base_url:
+        base_url = "http://localhost:11434"
+
+    return ProviderConfig(
+        provider=provider,
+        model_name=model_name,
+        temperature=temperature,
+        api_key=api_key,
+        base_url=base_url,
+    )

@@ -1,9 +1,9 @@
-# Student Scaffold
+# Memory Systems Lab Implementation
 
-This `src/` folder is the student version of the lab.
+This `src/` folder contains the runnable lab implementation.
 
 - It keeps the same high-level structure
-- The Python files are intentionally incomplete and contain pseudocode / TODOs
+- The Python files include deterministic offline behavior plus optional live providers
 - The benchmark structure should include: standard benchmark + long-context stress benchmark
 - The runtime should support these providers: `openai`, `custom`, `gemini`, `anthropic`, `ollama`, `openrouter`
 
